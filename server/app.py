@@ -31,3 +31,10 @@ async def step(action: Action):
 async def get_state():
     """Returns the absolute ground-truth state of the environment."""
     return env.state()
+
+def main():
+    import uvicorn
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
