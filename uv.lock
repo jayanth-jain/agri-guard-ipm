@@ -1,0 +1,29 @@
+version = 1
+requires-python = ">=3.10"
+
+[[package]]
+name = "agri-guard-ipm"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "openenv-core" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+]
+
+[[package]]
+name = "fastapi"
+version = "0.110.0"
+
+[[package]]
+name = "openenv-core"
+version = "0.2.0"
+
+[[package]]
+name = "pydantic"
+version = "2.6.3"
+
+[[package]]
+name = "uvicorn"
+version = "0.27.1"
