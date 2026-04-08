@@ -1,0 +1,14 @@
+spec_version: 1
+name: agri_guard
+version: "1.0.0"
+description: "Precision Pest Management for smallholder rice farmers using IPM protocols."
+runtime: python
+app: server.app:app
+port: 7860
+tasks:
+  - id: "point_outbreak"
+    difficulty: "easy"
+  - id: "resource_dilemma"
+    difficulty: "medium"
+  - id: "resistance_test"
+    difficulty: "hard"
