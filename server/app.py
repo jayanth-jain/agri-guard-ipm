@@ -61,11 +61,11 @@ async def step(action: Action, task_id: str = "point_outbreak"):
     obs, reward_val, done, info = envs[task_id].step(action)
     
     return {
-        "observation": obs.dict(),
-        "reward": float(clamp(reward_val)), # FLAT FLOAT - Very important
-        "done": bool(done),
-        "info": info,
-    }
+    "observation": obs.dict(),
+    "reward": float(clamp(reward_val)), # Just the number!
+    "done": bool(done),
+    "info": info,
+}
 @app.get("/state")
 async def state(task_id: str = "point_outbreak"):
     if task_id not in envs:
