@@ -18,13 +18,20 @@ async def reset(task_id: str = "point_outbreak"):
 @app.post("/step")
 async def step(action: Action):
     obs, reward_val, done, info = env.step(action)
+    
+    # EDGE SANITATION: One last guardrail before the data leaves the server
+    # This guarantees the validator sees a number strictly between 0 and 1
+    safe_reward_val = max(0.001, min(0.999, float(reward_val)))
+    
     # Wrap reward in the Pydantic model
-    reward = Reward(value=reward_val, comment="Step processed")
+    reward = Reward(value=safe_reward_val, comment="Step processed")
+    
     return {
         "observation": obs,
         "reward": reward,
         "done": done,
         "info": info
+    }
     }
 
 @app.get("/state")
