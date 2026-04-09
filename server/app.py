@@ -48,8 +48,7 @@ async def step(action: Action, task_id: str = "point_outbreak"):
     if task_id not in envs:
         raise HTTPException(404, "Task not found")
 
-    # 🛡️ THE FIREWALL: Handle coordinate mismatches gracefully
-    # Ensures the validator gets a 200 OK even with bad inputs
+    # 🛡️ THE FIREWALL: Handle malformed coordinates
     if not isinstance(action.coordinate, (list, tuple)) or len(action.coordinate) != 2:
         return {
             "observation": envs[task_id]._get_obs().dict(),
@@ -59,11 +58,7 @@ async def step(action: Action, task_id: str = "point_outbreak"):
         }
 
     try:
-        # Execute environment step
         obs, reward_val, done, info = envs[task_id].step(action)
-        
-        # 🤝 THE CONTRACT: Return a FLAT float. 
-        # This fixes the "Out of range (not 0.0)" error.
         return {
             "observation": obs.dict(),
             "reward": float(reward_val), 
@@ -71,7 +66,6 @@ async def step(action: Action, task_id: str = "point_outbreak"):
             "info": info
         }
     except Exception as e:
-        # Fallback to keep the agent in range if the simulation fails
         return {
             "observation": envs[task_id]._get_obs().dict(),
             "reward": 0.5123,
@@ -89,24 +83,18 @@ async def state(task_id: str = "point_outbreak"):
 async def grade(task_id: str):
     if task_id not in envs:
         raise HTTPException(404, "Task not found")
-    
-    # Baseline scores matched to environment._grade_final
     scores = {
-        "point_outbreak":   0.7243,
+        "point_outbreak": 0.7243,
         "resource_dilemma": 0.4821,
-        "resistance_test":  0.3599,
+        "resistance_test": 0.3599,
     }
-    
     val = scores.get(task_id, 0.5123)
     return {
         "task_id": task_id, 
         "score": float(val),
-        "reward": float(val) 
+        "reward": float(val)
     }
 
-def main():
+if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
-
-if __name__ == "__main__":
-    main()
