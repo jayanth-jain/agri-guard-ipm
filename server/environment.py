@@ -9,13 +9,14 @@ from models import Action, Observation, State, Reward
 def clamp_score(score: float) -> float:
     """
     STRICT CONSTRAINT: Ensures reward is never exactly 0.0 or 1.0.
-    Returns values between 0.001 and 0.999.
+    Returns values between 0.001 and 0.999 to satisfy (0, 1) validator.
     """
     try:
         val = float(score)
+        # We use 0.001 and 0.999 to stay safely away from the hard boundaries
         return round(float(np.clip(val, 0.001, 0.999)), 4)
-    except:
-        return 0.5
+    except Exception:
+        return 0.5000
 
 class AgriGuardEnv:
     def __init__(self):
@@ -57,7 +58,7 @@ class AgriGuardEnv:
 
     def step(self, action: Action):
         x, y = action.coordinate
-        # Default intermediate reward (must not be 0.0)
+        # Default intermediate reward (starting at 0.01 to avoid hard 0.0)
         reward_val = 0.01 
         
         # Tool Logic
@@ -103,6 +104,7 @@ class AgriGuardEnv:
         if done:
             reward_val = self._grade_final()
         
+        # WRAPPER: Ensures every return is clamped
         return self._get_obs(), clamp_score(reward_val), done, {"spent": self.current_state.total_spent}
 
     def _grade_final(self) -> float:
