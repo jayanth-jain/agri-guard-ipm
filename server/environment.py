@@ -2,18 +2,14 @@ import numpy as np
 import sys
 import os
 
-# Robust path handling
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import Action, Observation, State, Reward
 
 def clamp_score(score: float) -> float:
-    """Extra conservative clamp to avoid any floating point jitter."""
+    """The Nuclear Clamp: Forces everything strictly between 0.05 and 0.95."""
     try:
-        # Strictly between 0.1 and 0.9. It's impossible for this to be 0 or 1.
         val = float(score)
-        if val < 0.1: return 0.1000
-        if val > 0.9: return 0.9000
-        return round(val, 4)
+        return round(float(np.clip(val, 0.05, 0.95)), 4)
     except:
         return 0.5000
 
@@ -42,53 +38,39 @@ class AgriGuardEnv:
         return self._get_obs()
 
     def state(self):
-        return {
-            "task_id": self.task_id,
-            "grid_health": self.current_state.grid_health,
-            "pest_levels": self.current_state.pest_levels,
-            "has_resistance": self.current_state.has_resistance,
-            "total_spent": self.current_state.total_spent,
-            "turns": self.current_state.turns_since_infestation
-        }
+        return self.current_state.dict()
 
     def step(self, action: Action):
         x, y = action.coordinate
-        reward_val = 0.05
-        
-        # FIXED: Handles both naming conventions (neem_oil vs apply_neem_oil)
+        reward_val = 0.1  # Safe starting reward
+
+        # Tool names FIXED to match your models.Literal exactly
         if action.tool == "scout":
             self.current_state.total_spent += 10
-            pest_at_cell = self.current_state.pest_levels[x][y]
-            reward_val = 0.05 + min(pest_at_cell * 0.01, 0.1)
-        elif action.tool in ("neem_oil", "apply_neem_oil"):
+            reward_val = 0.1
+        elif action.tool == "apply_neem_oil":
             self.current_state.total_spent += 2
             pest_before = self.current_state.pest_levels[x][y]
             self.current_state.pest_levels[x][y] = max(0.0, pest_before - 2.0)
-            reduction = pest_before - self.current_state.pest_levels[x][y]
-            reward_val = 0.05 + (reduction * 0.02)
-        elif action.tool in ("chemical", "apply_chemical"):
+            reward_val = 0.1 + (pest_before * 0.02)
+        elif action.tool == "apply_chemical":
             self.current_state.total_spent += 5
-            pest_before = self.current_state.pest_levels[x][y]
             if not self.current_state.has_resistance:
                 self.current_state.pest_levels[x][y] = 0.0
-                reward_val = 0.10 + min(pest_before * 0.05, 0.4)
+                reward_val = 0.3
             else:
-                reward_val = 0.02
+                reward_val = 0.05
         elif action.tool == "biological_control":
             self.current_state.total_spent += 15
-            pest_before = self.current_state.pest_levels[x][y]
             if self.current_state.has_resistance:
                 self.current_state.pest_levels[x][y] = 0.0
-                decay_map = {0: 0.90, 1: 0.80, 2: 0.70, 3: 0.50, 4: 0.30, 5: 0.15}
-                base = decay_map.get(self.current_state.turns_since_infestation, 0.10)
-                reward_val = base + min(pest_before * 0.01, 0.08)
+                reward_val = 0.8
             else:
-                reward_val = 0.02
+                reward_val = 0.05
         elif action.tool == "abandon_cell":
-            pest_before = self.current_state.pest_levels[x][y]
             self.current_state.grid_health[x][y] = 0.0
             self.current_state.pest_levels[x][y] = 0.0
-            reward_val = 0.05 + min(pest_before * 0.03, 0.2)
+            reward_val = 0.05
 
         self._simulate_growth()
         self.current_state.turns_since_infestation += 1
@@ -102,28 +84,9 @@ class AgriGuardEnv:
         return self._get_obs(), clamp_score(reward_val), done, {"spent": self.current_state.total_spent}
 
     def _grade_final(self) -> float:
-        health_grid = np.array(self.current_state.grid_health)
-        pest_grid = np.array(self.current_state.pest_levels)
-        max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
-        avg_health = float(np.mean(health_grid)) / 9.0
-        avg_pest = float(np.mean(np.clip(pest_grid, 0, 100)))
-        pest_reduction = 1.0 - (avg_pest / 100.0)
-        
-        # FIXED: Efficiency capped to prevent negative values
-        raw_eff = 1.0 - (self.current_state.total_spent / max_budget)
-        efficiency = max(0.0, min(raw_eff, 1.0))
-
-        if self.task_id == "point_outbreak":
-            raw = (avg_health * 0.6) + (pest_reduction * 0.4)
-        elif self.task_id == "resource_dilemma":
-            inner = float(np.mean(health_grid[2:8, 2:8])) / 9.0
-            raw = (inner * 0.5) + (pest_reduction * 0.3) + (efficiency * 0.2)
-        elif self.task_id == "resistance_test":
-            turns = self.current_state.turns_since_infestation
-            early_bonus = max(0.0, 0.25 - (turns * 0.03))
-            raw = (avg_health * 0.45) + (pest_reduction * 0.30) + early_bonus
-        else:
-            raw = (avg_health * 0.5) + (pest_reduction * 0.5)
+        avg_health = np.mean(self.current_state.grid_health) / 9.0
+        pest_reduction = 1.0 - (np.mean(self.current_state.pest_levels) / 100.0)
+        raw = (avg_health * 0.5) + (pest_reduction * 0.5)
         return clamp_score(raw)
 
     def _simulate_growth(self):
@@ -149,5 +112,5 @@ class AgriGuardEnv:
             heatmap=heatmap,
             sensor_data={"core": self.current_state.pest_levels[5][5]},
             remaining_budget=max_budget - self.current_state.total_spent,
-            message=f"Task: {self.task_id} | Budget: {max_budget - self.current_state.total_spent:.1f}"
+            message=f"Status: {self.task_id}"
         )
