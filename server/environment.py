@@ -2,15 +2,16 @@ import numpy as np
 import sys
 import os
 
+# Robust path handling
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import Action, Observation, State, Reward
 
 def clamp_score(score: float) -> float:
-    """Strictly forces reward into (0.001, 0.999) — never exactly 0 or 1."""
+    """Ensures reward is strictly (0.001, 0.999). Satisfies grader constraints."""
     try:
         val = float(score)
         return round(float(np.clip(val, 0.001, 0.999)), 4)
-    except Exception:
+    except:
         return 0.5000
 
 class AgriGuardEnv:
@@ -51,7 +52,7 @@ class AgriGuardEnv:
         x, y = action.coordinate
         reward_val = 0.05
         
-        # Matches both 'tool' and 'apply_tool' naming conventions
+        # FIXED: Handles both naming conventions (neem_oil vs apply_neem_oil)
         if action.tool == "scout":
             self.current_state.total_spent += 10
             pest_at_cell = self.current_state.pest_levels[x][y]
@@ -88,6 +89,7 @@ class AgriGuardEnv:
 
         self._simulate_growth()
         self.current_state.turns_since_infestation += 1
+        
         max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
         done = self.current_state.total_spent >= max_budget or np.mean(self.current_state.grid_health) < 0.5
         
@@ -104,7 +106,7 @@ class AgriGuardEnv:
         avg_pest = float(np.mean(np.clip(pest_grid, 0, 100)))
         pest_reduction = 1.0 - (avg_pest / 100.0)
         
-        # Clamp efficiency so it never goes negative or hits 1.0 exactly
+        # FIXED: Efficiency capped to prevent negative values
         raw_eff = 1.0 - (self.current_state.total_spent / max_budget)
         efficiency = max(0.0, min(raw_eff, 1.0))
 
