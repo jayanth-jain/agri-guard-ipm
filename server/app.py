@@ -51,10 +51,13 @@ async def step(action: Action, task_id: str = "point_outbreak"):
     
     obs, reward_val, done, info = envs[task_id].step(action)
     
-    # Structure the response exactly as the validator expects
+    # We provide a "Dual-Format" reward to satisfy any validator parser
+    safe_reward = float(clamp(reward_val))
+    
     return {
         "observation": obs.dict(),
-        "reward": {"value": float(clamp(reward_val)), "comment": "Validated score"},
+        "reward": safe_reward, # Flat float format (Claude's suggestion)
+        "reward_obj": {"value": safe_reward, "comment": "Validated"}, # Nested format (Backup)
         "done": bool(done),
         "info": info,
     }
