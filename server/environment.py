@@ -7,10 +7,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import Action, Observation, State, Reward
 
 def clamp_score(score: float) -> float:
-    """Ensures reward is strictly (0.001, 0.999). Satisfies grader constraints."""
+    """Extra conservative clamp to avoid any floating point jitter."""
     try:
+        # Strictly between 0.1 and 0.9. It's impossible for this to be 0 or 1.
         val = float(score)
-        return round(float(np.clip(val, 0.001, 0.999)), 4)
+        if val < 0.1: return 0.1000
+        if val > 0.9: return 0.9000
+        return round(val, 4)
     except:
         return 0.5000
 
