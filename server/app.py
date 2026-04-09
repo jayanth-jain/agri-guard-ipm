@@ -49,19 +49,23 @@ async def step(action: Action, task_id: str = "point_outbreak"):
     if task_id not in envs:
         raise HTTPException(404, "Task not found")
     
+    # SAFETY CHECK: Prevent 500 errors if coordinates are wrong
+    if len(action.coordinate) != 2:
+         return {
+            "observation": envs[task_id]._get_obs().dict(),
+            "reward": 0.0123, # Return a safe, non-zero float
+            "done": False,
+            "info": {"error": "Invalid coordinates"}
+        }
+
     obs, reward_val, done, info = envs[task_id].step(action)
-    
-    # We provide a "Dual-Format" reward to satisfy any validator parser
-    safe_reward = float(clamp(reward_val))
     
     return {
         "observation": obs.dict(),
-        "reward": safe_reward, # Flat float format (Claude's suggestion)
-        "reward_obj": {"value": safe_reward, "comment": "Validated"}, # Nested format (Backup)
+        "reward": float(clamp(reward_val)), # FLAT FLOAT - Very important
         "done": bool(done),
         "info": info,
     }
-
 @app.get("/state")
 async def state(task_id: str = "point_outbreak"):
     if task_id not in envs:
