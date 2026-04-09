@@ -2,19 +2,22 @@ import numpy as np
 import sys
 import os
 
-# Robust path handling for models import
+# Robust path handling to ensure models can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import Action, Observation, State, Reward
 
+def clamp_score(score: float) -> float:
+    """The (0, 1) Fix: Ensures score is strictly between 0 and 1, never 0.0 or 1.0."""
+    return round(float(np.clip(score, 0.01, 0.99)), 4)
+
 class AgriGuardEnv:
     def __init__(self):
-        self.task_id = "point_outbreak" 
-        # We define self.current_state to avoid naming conflicts with the method
-        self.current_state = None 
+        self.task_id = "point_outbreak"
+        self.current_state = None
         self.reset()
 
     def reset(self, task_id="point_outbreak"):
-        self.task_id = task_id  
+        self.task_id = task_id
         self.current_state = State(
             grid_health=[[9.0 for _ in range(10)] for _ in range(10)],
             pest_levels=[[0.0 for _ in range(10)] for _ in range(10)],
@@ -22,18 +25,19 @@ class AgriGuardEnv:
             turns_since_infestation=0,
             total_spent=0.0
         )
-        
+
         if task_id == "point_outbreak":
             self.current_state.pest_levels[5][5] = 4.0
         elif task_id == "resource_dilemma":
             self.current_state.pest_levels[0][0] = 5.0
             self.current_state.pest_levels[9][9] = 5.0
-        
+        elif task_id == "resistance_test":
+            self.current_state.pest_levels[5][5] = 4.0
+
         return self._get_obs()
 
-    # --- ADD THIS METHOD FOR OPENENV COMPLIANCE ---
     def state(self):
-        """Returns the absolute ground-truth state as a dictionary."""
+        """Standard OpenEnv state retrieval for validation."""
         return {
             "task_id": self.task_id,
             "grid_health": self.current_state.grid_health,
@@ -45,34 +49,69 @@ class AgriGuardEnv:
 
     def step(self, action: Action):
         x, y = action.coordinate
-        reward_val = 0.0
-        
+        reward_val = 0.01  # Default baseline to avoid hard 0.0
+
+        # Tool logic using your original 'apply_' prefixes
         if action.tool == "scout":
             self.current_state.total_spent += 10
+            reward_val = 0.05 
+
         elif action.tool == "apply_neem_oil":
             self.current_state.total_spent += 2
+            pest_before = self.current_state.pest_levels[x][y]
             self.current_state.pest_levels[x][y] = max(0, self.current_state.pest_levels[x][y] - 2.0)
+            reduction = pest_before - self.current_state.pest_levels[x][y]
+            reward_val = 0.05 + (reduction * 0.05)
+
         elif action.tool == "apply_chemical":
             self.current_state.total_spent += 5
+            pest_before = self.current_state.pest_levels[x][y]
             if not self.current_state.has_resistance:
                 self.current_state.pest_levels[x][y] = 0.0
+                reward_val = 0.15 + (pest_before * 0.05)
+            else:
+                reward_val = 0.02 # Small penalty for resistant pests
+
         elif action.tool == "biological_control":
             self.current_state.total_spent += 15
+            pest_before = self.current_state.pest_levels[x][y]
             if self.current_state.has_resistance:
                 self.current_state.pest_levels[x][y] = 0.0
-                decay_map = {0: 1.0, 1: 1.0, 2: 1.0, 3: 0.5, 4: 0.2}
-                reward_val = decay_map.get(self.current_state.turns_since_infestation, 0.05)
+                # Early intervention is rewarded more highly
+                decay_map = {0: 0.95, 1: 0.85, 2: 0.75, 3: 0.55, 4: 0.35}
+                reward_val = decay_map.get(self.current_state.turns_since_infestation, 0.10)
+            else:
+                reward_val = 0.03
+
         elif action.tool == "abandon_cell":
             self.current_state.grid_health[x][y] = 0.0
             self.current_state.pest_levels[x][y] = 0.0
+            reward_val = 0.10 if self.current_state.pest_levels[x][y] > 5.0 else 0.02
 
         self._simulate_growth()
         self.current_state.turns_since_infestation += 1
-        
+
         max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
         done = self.current_state.total_spent >= max_budget or np.mean(self.current_state.grid_health) < 0.5
+
+        # Calculate final weighted score when the episode ends
+        if done:
+            reward_val = self._grade_final()
+
+        # ALL rewards go through the clamp to ensure they are strictly (0, 1)
+        return self._get_obs(), clamp_score(reward_val), done, {"spent": self.current_state.total_spent}
+
+    def _grade_final(self) -> float:
+        """Computes weighted final task score."""
+        avg_health = np.mean(self.current_state.grid_health) / 9.0
+        pest_reduction = 1.0 - (np.mean(self.current_state.pest_levels) / 100.0)
         
-        return self._get_obs(), reward_val, done, {"spent": self.current_state.total_spent}
+        if self.task_id == "point_outbreak":
+            return (avg_health * 0.6) + (pest_reduction * 0.4)
+        
+        max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
+        efficiency = 1.0 - (self.current_state.total_spent / max_budget)
+        return (avg_health * 0.4) + (efficiency * 0.6)
 
     def _simulate_growth(self):
         pest_grid = np.array(self.current_state.pest_levels)
@@ -99,5 +138,5 @@ class AgriGuardEnv:
             heatmap=heatmap,
             sensor_data={"core": self.current_state.pest_levels[5][5]},
             remaining_budget=max_budget - self.current_state.total_spent,
-            message=f"Task: {self.task_id} | Budget: {max_budget}"
+            message=f"Status: {self.task_id} | Budget: {max_budget - self.current_state.total_spent:.1f}"
         )
