@@ -47,13 +47,32 @@ class AgriGuardEnv:
         }
 
     def step(self, action: Action):
-        x, y = action.coordinate
+        """
+        Modified step with strict boundary and coordinate validation 
+        to prevent 500 Internal Server Errors.
+        """
+        try:
+            # 1. Coordinate Validation: Ensure [x, y] exists and are valid integers
+            if not isinstance(action.coordinate, (list, tuple)) or len(action.coordinate) != 2:
+                return self._get_obs(), 0.0123, False, {"error": "Invalid coordinate format"}
+            
+            x, y = action.coordinate
+            
+            # 2. Boundary Check: Prevent IndexErrors for 10x10 grid
+            if not (0 <= x < 10 and 0 <= y < 10):
+                return self._get_obs(), 0.0123, False, {"error": "Coordinate out of bounds"}
+                
+        except (ValueError, TypeError, IndexError):
+            # Final fallback for any unpacking errors
+            return self._get_obs(), 0.0123, False, {"error": "Processing error"}
+
+        # Safe baseline reward
         reward_val = 0.1234
 
+        # Logic for tool usage
         if action.tool == "scout":
             self.current_state.total_spent += 10.0
             pest_at_cell = self.current_state.pest_levels[x][y]
-            # Cap pest contribution so reward never hits 1.0
             reward_val = 0.10 + min(pest_at_cell * 0.01, 0.08)
 
         elif action.tool in ("neem_oil", "apply_neem_oil"):
@@ -83,16 +102,18 @@ class AgriGuardEnv:
             self.current_state.pest_levels[x][y] = 0.0
             reward_val = 0.0523
 
+        # Run internal logic
         self._simulate_growth()
         self.current_state.turns_since_infestation += 1
 
+        # Budget Check
         max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
         done = self.current_state.total_spent >= max_budget
 
         if done:
             reward_val = self._grade_final()
 
-        # Always clamp — final safety net
+        # Final safety net: Always return obs, a clamped score, and info
         return self._get_obs(), clamp_score(reward_val), done, {
             "spent": self.current_state.total_spent
         }
