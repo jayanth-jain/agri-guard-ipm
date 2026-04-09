@@ -83,16 +83,38 @@ class AgriGuardEnv:
         
         return self._get_obs(), clamp_score(reward_val), done, {"spent": self.current_state.total_spent}
 
-    def _grade_final(self) -> float:
-        """Weighted grader: Strictly returns between 0.1 and 0.9."""
+   def _grade_final(self) -> float:
+        """
+        Final episode score strictly in (0.01, 0.99).
+        Ensures the score never collapses to 0.0 even at max budget.
+        """
         health_grid = np.array(self.current_state.grid_health)
+        pest_grid = np.array(self.current_state.pest_levels)
+        max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
+        
+        # 1. Base Health Score (0.1 to 0.9 range)
         avg_health = float(np.mean(health_grid)) / 9.0
         
-        # Calculate a base score
-        raw_score = avg_health * 0.8  # Max possible is 0.8
+        # 2. Pest Reduction Score
+        avg_pest = float(np.mean(np.clip(pest_grid, 0, 100)))
+        pest_reduction = 1.0 - (avg_pest / 100.0)
         
-        # Add a tiny bit of noise so it's never exactly a round number
-        return clamp_score(raw_score + 0.0123)
+        # 3. Efficiency Floor: prevents exactly 0.0 when budget is spent
+        raw_eff = 1.0 - (self.current_state.total_spent / max_budget)
+        efficiency = max(0.1234, min(raw_eff, 0.9876)) 
+
+        if self.task_id == "point_outbreak":
+            raw = (avg_health * 0.6) + (pest_reduction * 0.4)
+        elif self.task_id == "resource_dilemma":
+            raw = (avg_health * 0.5) + (pest_reduction * 0.3) + (efficiency * 0.2)
+        elif self.task_id == "resistance_test":
+            turns = self.current_state.turns_since_infestation
+            early_bonus = max(0.05, 0.25 - (turns * 0.03))
+            raw = (avg_health * 0.45) + (pest_reduction * 0.30) + early_bonus
+        else:
+            raw = (avg_health * 0.5) + (pest_reduction * 0.5)
+            
+        return clamp_score(raw)
 
     def _simulate_growth(self):
         pest_grid = np.array(self.current_state.pest_levels)
