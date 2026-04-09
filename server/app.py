@@ -46,11 +46,17 @@ async def reset(task_id: str = "point_outbreak"):
 async def step(action: Action, task_id: str = "point_outbreak"):
     if task_id not in envs:
         raise HTTPException(404, f"Unknown task: {task_id}")
+    
     obs, reward_val, done, info = envs[task_id].step(action)
+    
+    # FORCE PURE PYTHON FLOAT (No numpy types)
+    # Using 0.05 to 0.95 to stay VERY far away from boundaries
+    safe_reward = float(max(0.05, min(0.95, float(reward_val))))
+    
     return {
         "observation": obs,
-        "reward": {"value": clamp(reward_val), "comment": "Step processed"},
-        "done": done,
+        "reward": safe_reward,  # Returning as a flat float, not a dict
+        "done": bool(done),
         "info": info,
     }
 
