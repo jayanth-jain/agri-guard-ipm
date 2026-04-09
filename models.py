@@ -1,46 +1,36 @@
-from pydantic import BaseModel
-from typing import List, Dict, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Literal
+
+class Reward(BaseModel):
+    value: float = Field(..., description="The reward value between 0.0 and 1.0")
+    comment: str = Field(..., description="Reasoning for the reward score")
 
 class Action(BaseModel):
-    """
-    Standard Action model. 
-    tool: scout, neem_oil, apply_chemical, biological_control, abandon_cell
-    coordinate: [x, y]
-    """
-    tool: str
-    coordinate: List[int]
+    tool: Literal["scout", "apply_neem_oil", "apply_chemical", "biological_control", "abandon_cell"] = Field(
+        ..., description="The agricultural tool to use."
+    )
+    coordinate: List[int] = Field(..., description="[x, y] coordinates on the 10x10 grid.")
 
 class Observation(BaseModel):
-    """
-    Observation schema for the agent.
-    Heatmap: 10x10 grid of health (0-9)
-    Sensor_data: Localized pest readings
-    """
-    heatmap: List[List[int]]
-    sensor_data: Dict[str, float]
+    heatmap: List[List[int]] = Field(..., description="10x10 health grid (0=dead, 9=healthy).")
+    sensor_data: Dict[str, float] = Field(..., description="Exact pest counts from 4 corner sensors.")
+    scout_report: Optional[Dict[str, Any]] = Field(None, description="Detailed info if scout tool was used.")
     remaining_budget: float
     message: str
 
-class Reward(BaseModel):
-    """
-    Used for schema documentation. 
-    Actual API returns a flat float for validator compatibility.
-    """
-    value: float
-    comment: Optional[str] = None
-
 class State(BaseModel):
-    """
-    Internal state tracking for the 'Judgmental' environment.
-    """
     grid_health: List[List[float]]
     pest_levels: List[List[float]]
     
-    # --- TOP 100 Logic Fields ---
-    chemical_usage_grid: List[List[int]]  # Tracks per-cell chemical spam to trigger resistance
-    total_chemical_count: int             # Used to calculate the Sustainability Score
-    # ----------------------------
-    
+    # --- JUDGMENTAL TRACKING FIELDS ---
+    # Tracks per-cell chemical usage for deterministic resistance
+    chemical_usage_grid: List[List[int]] = Field(
+        default_factory=lambda: [[0 for _ in range(10)] for _ in range(10)]
+    )
+    # Total chemical count across the whole mission for the Sustainability Score
+    total_chemical_count: int = 0
+    # ----------------------------------
+
     has_resistance: bool
-    total_spent: float
-    turns_since_infestation: int
+    turns_since_infestation: int = 0
+    total_spent: float = 0.0
