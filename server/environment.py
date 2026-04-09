@@ -2,17 +2,20 @@ import numpy as np
 import sys
 import os
 
-# Robust path handling to ensure models can be imported
+# Robust path handling for models import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import Action, Observation, State, Reward
 
 def clamp_score(score: float) -> float:
     """
-    STRICT CONSTRAINT FIX: 
-    Ensures score is strictly between 0 and 1 (e.g., 0.0001 to 0.9999).
-    This satisfies the 'not 0.0 and not 1.0' requirement.
+    STRICT CONSTRAINT: Ensures reward is never exactly 0.0 or 1.0.
+    Returns values between 0.001 and 0.999.
     """
-    return round(float(np.clip(score, 0.001, 0.999)), 4)
+    try:
+        val = float(score)
+        return round(float(np.clip(val, 0.001, 0.999)), 4)
+    except:
+        return 0.5
 
 class AgriGuardEnv:
     def __init__(self):
@@ -29,7 +32,8 @@ class AgriGuardEnv:
             turns_since_infestation=0,
             total_spent=0.0
         )
-
+        
+        # Initialize pests based on task
         if task_id == "point_outbreak":
             self.current_state.pest_levels[5][5] = 4.0
         elif task_id == "resource_dilemma":
@@ -37,11 +41,11 @@ class AgriGuardEnv:
             self.current_state.pest_levels[9][9] = 5.0
         elif task_id == "resistance_test":
             self.current_state.pest_levels[5][5] = 4.0
-
+        
         return self._get_obs()
 
     def state(self):
-        """Standard OpenEnv state retrieval."""
+        """Standard OpenEnv ground-truth retrieval."""
         return {
             "task_id": self.task_id,
             "grid_health": self.current_state.grid_health,
@@ -53,39 +57,36 @@ class AgriGuardEnv:
 
     def step(self, action: Action):
         x, y = action.coordinate
-        # Start with a tiny positive reward instead of 0.0
-        reward_val = 0.001 
-
+        # Default intermediate reward (must not be 0.0)
+        reward_val = 0.01 
+        
+        # Tool Logic
         if action.tool == "scout":
             self.current_state.total_spent += 10
-            reward_val = 0.01 
-
+            reward_val = 0.05
         elif action.tool == "apply_neem_oil":
             self.current_state.total_spent += 2
             pest_before = self.current_state.pest_levels[x][y]
             self.current_state.pest_levels[x][y] = max(0, self.current_state.pest_levels[x][y] - 2.0)
             reduction = pest_before - self.current_state.pest_levels[x][y]
-            reward_val = 0.05 + (reduction * 0.01)
-
+            reward_val = 0.05 + (reduction * 0.02)
         elif action.tool == "apply_chemical":
             self.current_state.total_spent += 5
             pest_before = self.current_state.pest_levels[x][y]
             if not self.current_state.has_resistance:
                 self.current_state.pest_levels[x][y] = 0.0
-                reward_val = 0.10 + (pest_before * 0.02)
+                reward_val = 0.10 + (pest_before * 0.05)
             else:
-                reward_val = 0.002 
-
+                reward_val = 0.002 # Resistance penalty
         elif action.tool == "biological_control":
             self.current_state.total_spent += 15
             if self.current_state.has_resistance:
                 self.current_state.pest_levels[x][y] = 0.0
-                # Ensure even the best decay is not 1.0
+                # Early intervention weighted higher
                 decay_map = {0: 0.9, 1: 0.8, 2: 0.7, 3: 0.5, 4: 0.3}
-                reward_val = decay_map.get(self.current_state.turns_since_infestation, 0.05)
+                reward_val = decay_map.get(self.current_state.turns_since_infestation, 0.1)
             else:
                 reward_val = 0.005
-
         elif action.tool == "abandon_cell":
             self.current_state.grid_health[x][y] = 0.0
             self.current_state.pest_levels[x][y] = 0.0
@@ -93,19 +94,19 @@ class AgriGuardEnv:
 
         self._simulate_growth()
         self.current_state.turns_since_infestation += 1
-
+        
+        # Episode Termination Logic
         max_budget = 55.0 if self.task_id == "resource_dilemma" else 100.0
         done = self.current_state.total_spent >= max_budget or np.mean(self.current_state.grid_health) < 0.5
-
-        # If the task is finished, we use the complex grader
+        
+        # If the episode is over, calculate the final task score
         if done:
             reward_val = self._grade_final()
-
-        # EVERY reward returned MUST be clamped
+        
         return self._get_obs(), clamp_score(reward_val), done, {"spent": self.current_state.total_spent}
 
     def _grade_final(self) -> float:
-        """Computes weighted final task score."""
+        """Weighted grader for the entire task."""
         avg_health = np.mean(self.current_state.grid_health) / 9.0
         pest_reduction = 1.0 - (np.mean(self.current_state.pest_levels) / 100.0)
         
