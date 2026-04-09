@@ -18,6 +18,18 @@ async def reset(task_id: str = "point_outbreak"):
 @app.post("/step")
 async def step(action: Action):
     obs, reward_val, done, info = env.step(action)
+    # Wrap reward in the Pydantic model
+    reward = Reward(value=reward_val, comment="Step processed")
+    return {
+        "observation": obs,
+        "reward": reward,
+        "done": done,
+        "info": info
+    }
+
+@app.post("/step")
+async def step(action: Action):
+    obs, reward_val, done, info = env.step(action)
     
     # EDGE SANITATION: One last guardrail before the data leaves the server
     # This guarantees the validator sees a number strictly between 0 and 1
@@ -32,12 +44,6 @@ async def step(action: Action):
         "done": done,
         "info": info
     }
-    }
-
-@app.get("/state")
-async def get_state():
-    """Returns the absolute ground-truth state of the environment."""
-    return env.state()
 
 def main():
     import uvicorn
